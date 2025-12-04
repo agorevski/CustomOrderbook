@@ -1,0 +1,16 @@
+{
+  "tenderly": {
+    "rpc_url": "https://virtual.arbitrum.eu.rpc.tenderly.co/a90a6fd4-fe31-4d79-a27a-a605d4408d18",
+    "chain_id": 42161,
+    "gas_price": "auto",
+    "gas_limit": 5000000
+  },
+  "arbitrum": {
+    "rpc_url": "https://arb1.arbitrum.io/rpc",
+    "chain_id": 42161,
+    "gas_price": "auto",
+    "gas_limit": 5000000,
+    "description": "Arbitrum One mainnet",
+    "explorer": "https://arbiscan.io"
+  }
+}

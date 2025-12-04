@@ -1,0 +1,17 @@
+# Python Dependencies for OrderBook Deployment Script
+# Install with: pip install -r requirements.txt
+
+# Core Web3 library for Ethereum interaction
+web3>=6.0.0
+
+# Solidity compiler wrapper
+py-solc-x>=1.12.0
+
+# Ethereum account management
+eth-account>=0.9.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Optional: Enhanced typing support
+typing-extensions>=4.5.0

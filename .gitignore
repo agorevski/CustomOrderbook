@@ -1,0 +1,138 @@
+# Python Deployment Script - Git Ignore File
+
+# ==============================================================================
+# SECURITY - NEVER COMMIT THESE FILES
+# ==============================================================================
+.env
+*.pem
+*.key
+private_keys/
+
+# ==============================================================================
+# Python
+# ==============================================================================
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# ==============================================================================
+# Solidity / Blockchain
+# ==============================================================================
+# Solidity compiler cache
+cache/
+artifacts/
+typechain/
+typechain-types/
+
+# Hardhat files
+cache
+artifacts
+
+# ==============================================================================
+# Deployment Artifacts (Optional - uncomment to ignore)
+# ==============================================================================
+# deployments/
+# Note: You may want to commit deployment info for tracking,
+# but be careful not to commit sensitive data
+
+# ==============================================================================
+# IDEs and Editors
+# ==============================================================================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ==============================================================================
+# Operating Systems
+# ==============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ==============================================================================
+# Logs
+# ==============================================================================
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==============================================================================
+# Temporary Files
+# ==============================================================================
+*.tmp
+*.temp
+*.bak
+*.backup

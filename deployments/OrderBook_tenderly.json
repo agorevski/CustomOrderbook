@@ -1,0 +1,8 @@
+{
+  "network": "tenderly",
+  "contract_address": "0xf7b968F1657196eF0186783FAF19aBBE2484dc3B",
+  "transaction_hash": "31615d09e2c22bd19c59c9e70f96e7d4c4bd6af0bbb8c4597b5413a699353370",
+  "deployer_address": "0xaaa6650272dbBB99c9D3b264Dafd8bE064D08A71",
+  "chain_id": 42161,
+  "timestamp": 1764871974
+}
