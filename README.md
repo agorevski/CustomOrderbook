@@ -1,9 +1,10 @@
-# CustomDex - Decentralized Order Book Exchange
+# CustomOrderBook - Decentralized Order Book Exchange
 
 A security-hardened, decentralized exchange (DEX) implementation featuring an on-chain order book system for trustless ERC20 token swaps on EVM-compatible blockchains.
 
 ![Tenderly Virtual TestNet](tenderly.png)
 
+![Test Cases](tests.png)
 ## Overview
 
 
