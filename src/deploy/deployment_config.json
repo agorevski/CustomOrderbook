@@ -1,6 +1,6 @@
 {
   "tenderly": {
-    "rpc_url": "https://virtual.arbitrum.eu.rpc.tenderly.co/a90a6fd4-fe31-4d79-a27a-a605d4408d18",
+    "rpc_url": "https://virtual.arbitrum.eu.rpc.tenderly.co/dbe98749-b560-4dfc-9841-da3f3b4494ee",
     "chain_id": 42161,
     "gas_price": "auto",
     "gas_limit": 5000000
