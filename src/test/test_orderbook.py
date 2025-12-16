@@ -3,24 +3,25 @@
 OrderBook Contract Integrated Test Script
 
 This script provides a complete test lifecycle:
-1. Generate 3 brand new vanity accounts
-2. Fund the accounts with ETH and tokens
+1. Generate 3 brand new vanity accounts (or load from .env with --use-env)
+2. Fund the accounts with ETH and tokens (skipped with --use-env)
 3. Deploy OrderBook.sol contract to Tenderly
 4. Run comprehensive tests on the deployed contract
 
 Usage:
-    python test_orderbook.py
+    python test_orderbook.py              # Generate new accounts and fund them
+    python test_orderbook.py --use-env    # Use pre-funded accounts from .env file
 """
 
 import json
 import sys
 import os
+import argparse
 import requests
 from pathlib import Path
 from web3 import Web3
-from eth_account import Account
-from decimal import Decimal
 from solcx import compile_standard, install_solc, set_solc_version
+from dotenv import load_dotenv
 
 # Add utils directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "utils"))
@@ -68,6 +69,104 @@ def print_warning(text):
     print(f"{Colors.WARNING}⚠ {text}{Colors.ENDC}")
 
 
+def load_env_config():
+    """Load configuration from .env file for --use-env mode.
+
+    Returns:
+        dict: Configuration containing token addresses and account information
+    """
+    env_path = Path(__file__).parent / ".env"
+
+    if not env_path.exists():
+        print_error(f".env file not found at {env_path}")
+        print_info("Please copy .env.example to .env and configure your accounts")
+        sys.exit(1)
+
+    load_dotenv(env_path)
+
+    # Required environment variables
+    required_vars = [
+        "TOKEN_A_ADDRESS",
+        "TOKEN_B_ADDRESS",
+        "DEPLOYMENT_ACCOUNT_ADDRESS",
+        "DEPLOYMENT_ACCOUNT_PRIVATE_KEY",
+        "ASK_ACCOUNT_ADDRESS",
+        "ASK_ACCOUNT_PRIVATE_KEY",
+        "FILL_ACCOUNT_ADDRESS",
+        "FILL_ACCOUNT_PRIVATE_KEY",
+    ]
+
+    # Check for missing variables
+    missing = [var for var in required_vars if not os.getenv(var)]
+    if missing:
+        print_error(f"Missing required environment variables: {', '.join(missing)}")
+        sys.exit(1)
+
+    # Build configuration
+    config = {
+        "token_a_address": os.getenv("TOKEN_A_ADDRESS"),
+        "token_b_address": os.getenv("TOKEN_B_ADDRESS"),
+        "deployment_account": {
+            "checksum_address": Web3.to_checksum_address(
+                os.getenv("DEPLOYMENT_ACCOUNT_ADDRESS")
+            ),
+            "private_key": os.getenv("DEPLOYMENT_ACCOUNT_PRIVATE_KEY"),
+        },
+        "ask_account": {
+            "checksum_address": Web3.to_checksum_address(
+                os.getenv("ASK_ACCOUNT_ADDRESS")
+            ),
+            "private_key": os.getenv("ASK_ACCOUNT_PRIVATE_KEY"),
+        },
+        "fill_account": {
+            "checksum_address": Web3.to_checksum_address(
+                os.getenv("FILL_ACCOUNT_ADDRESS")
+            ),
+            "private_key": os.getenv("FILL_ACCOUNT_PRIVATE_KEY"),
+        },
+        "token_a_trade_amount": None,
+        "token_b_trade_amount": None,
+    }
+
+    # Load optional pre-deployed contract address
+    config["orderbook_contract_address"] = os.getenv("ORDERBOOK_CONTRACT_ADDRESS")
+
+    # Load optional trade amounts
+    token_a_trade_str = os.getenv("TOKEN_A_TRADE_AMOUNT")
+    token_b_trade_str = os.getenv("TOKEN_B_TRADE_AMOUNT")
+
+    if token_a_trade_str:
+        try:
+            config["token_a_trade_amount"] = float(token_a_trade_str)
+        except ValueError:
+            print_warning(f"Invalid TOKEN_A_TRADE_AMOUNT value: {token_a_trade_str}, using wallet balance")
+
+    if token_b_trade_str:
+        try:
+            config["token_b_trade_amount"] = float(token_b_trade_str)
+        except ValueError:
+            print_warning(f"Invalid TOKEN_B_TRADE_AMOUNT value: {token_b_trade_str}, using wallet balance")
+
+    print_success("Loaded configuration from .env file")
+    print_info(f"  Token A Address: {config['token_a_address']}")
+    print_info(f"  Token B Address: {config['token_b_address']}")
+    print_info(
+        f"  Deployment Account: {config['deployment_account']['checksum_address']}"
+    )
+    print_info(f"  Ask Account: {config['ask_account']['checksum_address']}")
+    print_info(f"  Fill Account: {config['fill_account']['checksum_address']}")
+    if config["token_a_trade_amount"] is not None:
+        print_info(f"  Token A Trade Amount: {config['token_a_trade_amount']}")
+    else:
+        print_info("  Token A Trade Amount: (using wallet balance)")
+    if config["token_b_trade_amount"] is not None:
+        print_info(f"  Token B Trade Amount: {config['token_b_trade_amount']}")
+    else:
+        print_info("  Token B Trade Amount: (using wallet balance)")
+
+    return config
+
+
 def load_json_file(filepath):
     """Load and parse JSON file"""
     try:
@@ -79,6 +178,27 @@ def load_json_file(filepath):
     except json.JSONDecodeError as e:
         print_error(f"Invalid JSON in {filepath}: {e}")
         sys.exit(1)
+
+
+def load_deployed_contract_abi():
+    """Load the OrderBook ABI from the deployments directory.
+    
+    Returns:
+        list: The contract ABI
+    """
+    base_path = Path(__file__).parent.parent.parent
+    abi_path = base_path / "deployments" / "OrderBook_abi.json"
+    
+    if not abi_path.exists():
+        print_error(f"OrderBook ABI not found at {abi_path}")
+        print_info("Please ensure the contract has been deployed and the ABI file exists")
+        sys.exit(1)
+    
+    print_info(f"Loading ABI from: {abi_path}")
+    abi = load_json_file(abi_path)
+    print_success("ABI loaded successfully")
+    
+    return abi
 
 
 def format_token_amount(amount, decimals=6):
@@ -131,13 +251,20 @@ def generate_test_accounts():
     return deployment_account, ask_account, fill_account
 
 
-def fund_accounts(rpc_url, deployment_account, ask_account, fill_account):
+def fund_accounts(
+    rpc_url,
+    deployment_account,
+    ask_account,
+    fill_account,
+    token_a_address=None,
+    token_b_address=None,
+):
     """Fund accounts with ETH and tokens via Tenderly RPC"""
     print_header("Funding Test Accounts")
 
-    # Token addresses
-    USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
-    TOKEN_B_ADDRESS = "0x2433D6AC11193b4695D9ca73530de93c538aD18a"
+    # Use provided token addresses or defaults
+    USDC_ADDRESS = token_a_address or "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+    TOKEN_B_ADDRESS = token_b_address or "0x2433D6AC11193b4695D9ca73530de93c538aD18a"
 
     # Fund native balance (10 ETH each)
     print_info("Funding native balance (10 ETH each)...")
@@ -156,7 +283,7 @@ def fund_accounts(rpc_url, deployment_account, ask_account, fill_account):
     print_success("Native balance funded for all accounts")
 
     usdc_amount = random.uniform(1, 10) * (10**6)
-    print_info(f"Funding Ask Account with {usdc_amount / (10**6):.2f} USDC...")
+    print_info(f"Funding Ask Account with {usdc_amount / (10**6):.2f} Token A...")
     usdc_amount_hex = hex(int(usdc_amount))
 
     tenderly_rpc_call(
@@ -164,7 +291,7 @@ def fund_accounts(rpc_url, deployment_account, ask_account, fill_account):
         "tenderly_setErc20Balance",
         [USDC_ADDRESS, [ask_account["checksum_address"]], usdc_amount_hex],
     )
-    print_success(f"Ask Account funded with 100 USDC")
+    print_success(f"Ask Account funded with Token A")
 
     # Fund Fill Account with 50,000 Token B (6 decimals)
     token_b_amount = random.uniform(50000, 100000) * (10**6)
@@ -176,7 +303,7 @@ def fund_accounts(rpc_url, deployment_account, ask_account, fill_account):
         "tenderly_setErc20Balance",
         [TOKEN_B_ADDRESS, [fill_account["checksum_address"]], token_b_amount_hex],
     )
-    print_success(f"Fill Account funded with 50,000 Token B")
+    print_success(f"Fill Account funded with Token B")
 
     print_success("All accounts funded successfully!")
 
@@ -461,13 +588,38 @@ def extract_order_id_from_receipt(w3, receipt, contract):
     return None
 
 
-def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_account):
-    """Run the OrderBook tests"""
+def run_orderbook_tests(
+    w3,
+    contract_address,
+    contract_abi,
+    ask_account,
+    fill_account,
+    token_a_address=None,
+    token_b_address=None,
+    token_a_trade_amount=None,
+    token_b_trade_amount=None,
+):
+    """Run the OrderBook tests
+
+    Args:
+        w3: Web3 instance
+        contract_address: Deployed OrderBook contract address
+        contract_abi: Contract ABI
+        ask_account: Account that creates the order (offers Token A, requests Token B)
+        fill_account: Account that fills the order (offers Token B, receives Token A)
+        token_a_address: Token A address (default: USDC)
+        token_b_address: Token B address (default: custom Token B)
+        token_a_trade_amount: Optional fixed amount of Token A to trade (in token units, e.g., 5.0)
+        token_b_trade_amount: Optional fixed amount of Token B to trade (in token units, e.g., 50000.0)
+    """
     print_header("Running OrderBook Tests")
 
-    # Token addresses (USDC has 6 decimals, Token B has 6 decimals)
-    USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
-    TOKEN_B_ADDRESS = "0x2433D6AC11193b4695D9ca73530de93c538aD18a"
+    # Use provided token addresses or defaults
+    TOKEN_A_ADDRESS = token_a_address or "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"
+    TOKEN_B_ADDRESS = token_b_address or "0x2433D6AC11193b4695D9ca73530de93c538aD18a"
+
+    print_info(f"Token A Address: {TOKEN_A_ADDRESS}")
+    print_info(f"Token B Address: {TOKEN_B_ADDRESS}")
 
     # Initialize contract
     contract = w3.eth.contract(
@@ -487,34 +639,65 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
     print_header("Step 1: Verifying Pre-conditions")
 
     print_info("Checking ask_wallet balances...")
-    ask_usdc_balance = get_token_balance(w3, USDC_ADDRESS, ask_address)
+    ask_token_a_balance = get_token_balance(w3, TOKEN_A_ADDRESS, ask_address)
     ask_tokenb_balance = get_token_balance(w3, TOKEN_B_ADDRESS, ask_address)
 
     print_info(f"  Ask Account ({ask_address}):")
-    print_info(f"    USDC Balance: {format_token_amount(ask_usdc_balance, 6)}")
+    print_info(f"    Token A Balance: {format_token_amount(ask_token_a_balance, 6)}")
     print_info(f"    Token B Balance: {format_token_amount(ask_tokenb_balance, 6)}")
 
-    # Set ask_offered_amount to the actual USDC balance in ask wallet
-    ask_offered_amount = ask_usdc_balance
+    # Determine ask_offered_amount: use specified amount from .env or wallet balance
+    if token_a_trade_amount is not None:
+        # Convert from token units to smallest unit (e.g., 5.0 USDC -> 5000000)
+        ask_offered_amount = to_wei_custom(token_a_trade_amount, 6)
+        print_info(f"  Using specified Token A trade amount: {token_a_trade_amount}")
+        # Validate sufficient balance
+        if ask_offered_amount > ask_token_a_balance:
+            print_error(
+                f"Insufficient Token A balance. Required: {token_a_trade_amount}, "
+                f"Available: {format_token_amount(ask_token_a_balance, 6)}"
+            )
+            sys.exit(1)
+    else:
+        # Use full wallet balance
+        ask_offered_amount = ask_token_a_balance
+        print_info("  Using full wallet balance for Token A trade amount")
 
-    if ask_usdc_balance == 0:
-        print_error("Ask account has no USDC balance")
+    if ask_token_a_balance == 0:
+        print_error("Ask account has no Token A balance")
         sys.exit(1)
 
     print_success(
-        f"Ask account USDC balance: {format_token_amount(ask_usdc_balance, 6)}"
+        f"Ask account Token A balance: {format_token_amount(ask_token_a_balance, 6)}"
+    )
+    print_success(
+        f"Token A trade amount: {format_token_amount(ask_offered_amount, 6)}"
     )
 
     print_info("\nChecking fill_wallet balances...")
-    fill_usdc_balance = get_token_balance(w3, USDC_ADDRESS, fill_address)
+    fill_token_a_balance = get_token_balance(w3, TOKEN_A_ADDRESS, fill_address)
     fill_tokenb_balance = get_token_balance(w3, TOKEN_B_ADDRESS, fill_address)
 
     print_info(f"  Fill Account ({fill_address}):")
-    print_info(f"    USDC Balance: {format_token_amount(fill_usdc_balance, 6)}")
+    print_info(f"    Token A Balance: {format_token_amount(fill_token_a_balance, 6)}")
     print_info(f"    Token B Balance: {format_token_amount(fill_tokenb_balance, 6)}")
 
-    # Set ask_requested_amount to the actual Token B balance in fill wallet
-    ask_requested_amount = fill_tokenb_balance
+    # Determine ask_requested_amount: use specified amount from .env or wallet balance
+    if token_b_trade_amount is not None:
+        # Convert from token units to smallest unit (e.g., 50000.0 -> 50000000000)
+        ask_requested_amount = to_wei_custom(token_b_trade_amount, 6)
+        print_info(f"  Using specified Token B trade amount: {token_b_trade_amount}")
+        # Validate sufficient balance
+        if ask_requested_amount > fill_tokenb_balance:
+            print_error(
+                f"Insufficient Token B balance in fill account. Required: {token_b_trade_amount}, "
+                f"Available: {format_token_amount(fill_tokenb_balance, 6)}"
+            )
+            sys.exit(1)
+    else:
+        # Use full wallet balance
+        ask_requested_amount = fill_tokenb_balance
+        print_info("  Using full wallet balance for Token B trade amount")
 
     if fill_tokenb_balance == 0:
         print_error("Fill account has no Token B balance")
@@ -523,18 +706,21 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
     print_success(
         f"Fill account Token B balance: {format_token_amount(fill_tokenb_balance, 6)}"
     )
+    print_success(
+        f"Token B trade amount: {format_token_amount(ask_requested_amount, 6)}"
+    )
 
     # Step 2: Approve and create order
     print_header("Step 2: Creating Order from Ask Account")
 
     print_info(
-        f"Approving OrderBook to spend {format_token_amount(ask_offered_amount, 6)} USDC from ask_account..."
+        f"Approving OrderBook to spend {format_token_amount(ask_offered_amount, 6)} Token A from ask_account..."
     )
 
     try:
         approve_receipt = approve_token(
             w3,
-            USDC_ADDRESS,
+            TOKEN_A_ADDRESS,
             contract_address,
             ask_offered_amount,
             ask_private_key,
@@ -549,14 +735,14 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
         sys.exit(1)
 
     print_info(
-        f"\nCreating order: {format_token_amount(ask_offered_amount, 6)} USDC for {format_token_amount(ask_requested_amount, 6)} Token B..."
+        f"\nCreating order: {format_token_amount(ask_offered_amount, 6)} Token A for {format_token_amount(ask_requested_amount, 6)} Token B..."
     )
 
     try:
         create_receipt = create_order(
             w3,
             contract,
-            USDC_ADDRESS,
+            TOKEN_A_ADDRESS,
             ask_offered_amount,
             TOKEN_B_ADDRESS,
             ask_requested_amount,
@@ -642,24 +828,24 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
     print_info("Checking final balances...")
 
     # Ask account final balances
-    ask_usdc_final = get_token_balance(w3, USDC_ADDRESS, ask_address)
+    ask_token_a_final = get_token_balance(w3, TOKEN_A_ADDRESS, ask_address)
     ask_tokenb_final = get_token_balance(w3, TOKEN_B_ADDRESS, ask_address)
 
     print_info(f"\nAsk Account ({ask_address}):")
     print_info(
-        f"  USDC: {format_token_amount(ask_usdc_balance, 6)} → {format_token_amount(ask_usdc_final, 6)}"
+        f"  Token A: {format_token_amount(ask_token_a_balance, 6)} → {format_token_amount(ask_token_a_final, 6)}"
     )
     print_info(
         f"  Token B: {format_token_amount(ask_tokenb_balance, 6)} → {format_token_amount(ask_tokenb_final, 6)}"
     )
 
     # Fill account final balances
-    fill_usdc_final = get_token_balance(w3, USDC_ADDRESS, fill_address)
+    fill_token_a_final = get_token_balance(w3, TOKEN_A_ADDRESS, fill_address)
     fill_tokenb_final = get_token_balance(w3, TOKEN_B_ADDRESS, fill_address)
 
     print_info(f"\nFill Account ({fill_address}):")
     print_info(
-        f"  USDC: {format_token_amount(fill_usdc_balance, 6)} → {format_token_amount(fill_usdc_final, 6)}"
+        f"  Token A: {format_token_amount(fill_token_a_balance, 6)} → {format_token_amount(fill_token_a_final, 6)}"
     )
     print_info(
         f"  Token B: {format_token_amount(fill_tokenb_balance, 6)} → {format_token_amount(fill_tokenb_final, 6)}"
@@ -670,17 +856,17 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
 
     success = True
 
-    # Ask account should have received Token B and lost USDC
-    expected_ask_usdc = ask_usdc_balance - ask_offered_amount
+    # Ask account should have received Token B and lost Token A
+    expected_ask_token_a = ask_token_a_balance - ask_offered_amount
     expected_ask_tokenb = ask_tokenb_balance + ask_requested_amount
 
-    if ask_usdc_final == expected_ask_usdc:
+    if ask_token_a_final == expected_ask_token_a:
         print_success(
-            f"Ask account USDC balance correct: {format_token_amount(ask_usdc_final, 6)}"
+            f"Ask account Token A balance correct: {format_token_amount(ask_token_a_final, 6)}"
         )
     else:
         print_error(
-            f"Ask account USDC balance incorrect. Expected {format_token_amount(expected_ask_usdc, 6)}, got {format_token_amount(ask_usdc_final, 6)}"
+            f"Ask account Token A balance incorrect. Expected {format_token_amount(expected_ask_token_a, 6)}, got {format_token_amount(ask_token_a_final, 6)}"
         )
         success = False
 
@@ -694,17 +880,17 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
         )
         success = False
 
-    # Fill account should have received USDC and lost Token B
-    expected_fill_usdc = fill_usdc_balance + ask_offered_amount
+    # Fill account should have received Token A and lost Token B
+    expected_fill_token_a = fill_token_a_balance + ask_offered_amount
     expected_fill_tokenb = fill_tokenb_balance - ask_requested_amount
 
-    if fill_usdc_final == expected_fill_usdc:
+    if fill_token_a_final == expected_fill_token_a:
         print_success(
-            f"Fill account USDC balance correct: {format_token_amount(fill_usdc_final, 6)}"
+            f"Fill account Token A balance correct: {format_token_amount(fill_token_a_final, 6)}"
         )
     else:
         print_error(
-            f"Fill account USDC balance incorrect. Expected {format_token_amount(expected_fill_usdc, 6)}, got {format_token_amount(fill_usdc_final, 6)}"
+            f"Fill account Token A balance incorrect. Expected {format_token_amount(expected_fill_token_a, 6)}, got {format_token_amount(fill_token_a_final, 6)}"
         )
         success = False
 
@@ -734,12 +920,37 @@ def run_orderbook_tests(w3, contract_address, contract_abi, ask_account, fill_ac
     return success, order_id
 
 
+def parse_arguments():
+    """Parse command-line arguments"""
+    parser = argparse.ArgumentParser(
+        description="OrderBook Contract Integrated Test Script",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python test_orderbook.py              # Generate new accounts and fund them
+    python test_orderbook.py --use-env    # Use pre-funded accounts from .env file
+        """,
+    )
+    parser.add_argument(
+        "--use-env",
+        action="store_true",
+        help="Use pre-funded accounts and token addresses from .env file instead of generating new accounts",
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main test execution"""
+    # Parse command-line arguments
+    args = parse_arguments()
+    use_env = args.use_env
+
     print_header("OrderBook Contract - Integrated Test Suite")
-    print_info(
-        "This test will generate fresh accounts, deploy a new contract, and run tests"
-    )
+
+    if use_env:
+        print_info("Mode: Using pre-funded accounts from .env file")
+    else:
+        print_info("Mode: Generating fresh accounts and funding them")
 
     # Load network configuration
     base_path = Path(__file__).parent.parent.parent
@@ -759,26 +970,84 @@ def main():
 
     print_success(f"Connected to chain ID: {w3.eth.chain_id}")
 
-    # Phase 1: Compile contract
-    print_header("Phase 1: Compile Contract")
-    contract_data = compile_orderbook_contract()
+    # Initialize variables for token addresses
+    token_a_address = None
+    token_b_address = None
 
-    # Phase 2: Generate accounts
-    print_header("Phase 2: Account Generation")
-    deployment_account, ask_account, fill_account = generate_test_accounts()
+    # Initialize variables for trade amounts
+    token_a_trade_amount = None
+    token_b_trade_amount = None
 
-    # Phase 3: Fund accounts
-    print_header("Phase 3: Fund Accounts")
-    fund_accounts(rpc_url, deployment_account, ask_account, fill_account)
+    # Initialize variables for contract
+    contract_address = None
+    contract_abi = None
+    use_predeployed_contract = False
 
-    # Phase 4: Deploy contract
-    print_header("Phase 4: Deploy Contract")
-    contract_address = deploy_orderbook_contract(w3, deployment_account, contract_data)
+    if use_env:
+        # Load configuration from .env file
+        print_header("Phase 1: Load Configuration from .env")
+        env_config = load_env_config()
+
+        deployment_account = env_config["deployment_account"]
+        ask_account = env_config["ask_account"]
+        fill_account = env_config["fill_account"]
+        token_a_address = env_config["token_a_address"]
+        token_b_address = env_config["token_b_address"]
+        token_a_trade_amount = env_config["token_a_trade_amount"]
+        token_b_trade_amount = env_config["token_b_trade_amount"]
+
+        # Check if a pre-deployed contract address is specified
+        if env_config.get("orderbook_contract_address"):
+            use_predeployed_contract = True
+            contract_address = Web3.to_checksum_address(env_config["orderbook_contract_address"])
+            print_info(f"  Pre-deployed Contract: {contract_address}")
+
+        print_header("Phase 2: Skipping Account Funding (using pre-funded accounts)")
+        print_info("Accounts are assumed to be pre-funded with ETH and tokens")
+
+        if use_predeployed_contract:
+            # Skip compilation and deployment, load ABI from deployments folder
+            print_header("Phase 3: Using Pre-deployed Contract")
+            print_info(f"Using pre-deployed OrderBook contract at: {contract_address}")
+            contract_abi = load_deployed_contract_abi()
+        else:
+            # Compile and deploy a fresh contract
+            print_header("Phase 3: Compile Contract")
+            contract_data = compile_orderbook_contract()
+            contract_abi = contract_data["abi"]
+
+            print_header("Phase 4: Deploy Contract")
+            contract_address = deploy_orderbook_contract(w3, deployment_account, contract_data)
+    else:
+        # Phase 1: Compile contract
+        print_header("Phase 1: Compile Contract")
+        contract_data = compile_orderbook_contract()
+        contract_abi = contract_data["abi"]
+
+        # Phase 2: Generate accounts
+        print_header("Phase 2: Account Generation")
+        deployment_account, ask_account, fill_account = generate_test_accounts()
+
+        # Phase 3: Fund accounts
+        print_header("Phase 3: Fund Accounts")
+        fund_accounts(rpc_url, deployment_account, ask_account, fill_account)
+
+        # Phase 4: Deploy contract
+        print_header("Phase 4: Deploy Contract")
+        contract_address = deploy_orderbook_contract(w3, deployment_account, contract_data)
 
     # Phase 5: Run tests
     print_header("Phase 5: Run Tests")
     success, order_id = run_orderbook_tests(
-        w3, contract_address, contract_data["abi"], ask_account, fill_account
+        w3,
+        contract_address,
+        contract_abi,
+        ask_account,
+        fill_account,
+        token_a_address=token_a_address,
+        token_b_address=token_b_address,
+        token_a_trade_amount=token_a_trade_amount,
+        token_b_trade_amount=token_b_trade_amount,
     )
 
     # Final result
@@ -787,12 +1056,20 @@ def main():
     if success:
         print_success("ALL TESTS PASSED! ✓")
         print_info("\nTest Summary:")
-        print_info("  - 3 fresh accounts generated")
-        print_info("  - Accounts funded successfully")
-        print_info(f"  - Contract deployed at: {contract_address}")
+        if use_env:
+            print_info("  - Used pre-funded accounts from .env file")
+            if use_predeployed_contract:
+                print_info("  - Used pre-deployed contract (skipped compilation and deployment)")
+            else:
+                print_info("  - Compiled and deployed fresh contract")
+        else:
+            print_info("  - 3 fresh accounts generated")
+            print_info("  - Accounts funded successfully")
+            print_info("  - Compiled and deployed fresh contract")
+        print_info(f"  - Contract address: {contract_address}")
         print_info(f"  - Order {order_id} created successfully")
         print_info(f"  - Order {order_id} filled successfully")
-        print_info("  - USDC swapped for Token B successfully")
+        print_info("  - Token A swapped for Token B successfully")
         print_info("  - All balance checks passed")
         return 0
     else:
