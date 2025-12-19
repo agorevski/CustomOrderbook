@@ -20,24 +20,7 @@ This document identifies development anti-patterns found in the `OrderBook.sol` 
 
 ---
 
-### 2. **Missing Input Validation for Token Contract Existence**
-
-**Location:** createOrder function
-
-**Issue:** The contract doesn't verify that token addresses are actually valid ERC20 contracts. This could lead to orders being created with invalid token addresses.
-
-**Recommendation:**
-- Add a check that verifies the token contract has code
-- Optionally verify the token implements ERC20 interface
-
-```solidity
-require(offeredToken.code.length > 0, "Offered token is not a contract");
-require(requestedToken.code.length > 0, "Requested token is not a contract");
-```
-
----
-
-### 3. **No Order Expiration Mechanism**
+### 2. **No Order Expiration Mechanism**
 
 **Location:** Order struct
 
@@ -56,51 +39,7 @@ struct Order {
 
 ---
 
-### 4. **Redundant `orderId` Storage in Struct**
-
-**Location:** Order struct, createOrder function
-
-**Issue:** The `orderId` is stored both as the mapping key and inside the Order struct, wasting storage gas.
-
-```solidity
-struct Order {
-    uint256 orderId;  // Redundant - already the mapping key
-    // ...
-}
-orders[orderId] = Order({
-    orderId: orderId,  // Stored twice
-    // ...
-});
-```
-
-**Recommendation:**
-- Remove `orderId` from the struct if it's always known from context
-- Or use `orderId != 0` check only for existence validation (current pattern is acceptable but gas-inefficient)
-
----
-
-### 5. **No Pause Mechanism**
-
-**Location:** Entire contract
-
-**Issue:** There's no way to pause the contract in case of an emergency or discovered vulnerability.
-
-**Recommendation:**
-- Implement OpenZeppelin's `Pausable` pattern
-- Add `whenNotPaused` modifier to state-changing functions
-
-```solidity
-import "@openzeppelin/contracts/utils/Pausable.sol";
-
-contract OrderBook is ReentrancyGuard, Pausable {
-    function createOrder(...) external nonReentrant whenNotPaused { }
-    function fillOrder(...) external nonReentrant whenNotPaused { }
-}
-```
-
----
-
-### 6. **Emergency Withdraw Can Break Active Orders**
+### 3. **Emergency Withdraw Can Break Active Orders**
 
 **Location:** emergencyWithdraw function
 
@@ -113,31 +52,7 @@ contract OrderBook is ReentrancyGuard, Pausable {
 
 ---
 
-### 7. **No Fee Mechanism**
-
-**Location:** Entire contract
-
-**Issue:** While not strictly an anti-pattern, having no fee mechanism means the contract operator has no revenue model and no way to sustain infrastructure costs.
-
-**Recommendation:**
-- Consider adding optional trading fees
-- Implement fee collection mechanism if needed for sustainability
-
----
-
-### 8. **Events Declared After Functions**
-
-**Location:** End of contract
-
-**Issue:** Events are declared at the end of the contract, which reduces readability and goes against common Solidity style conventions.
-
-**Recommendation:**
-- Move event declarations after state variables and before the constructor
-- Follow consistent ordering: State variables → Events → Modifiers → Constructor → Functions
-
----
-
-### 9. **Lack of Indexed Event Parameters**
+### 4. **Lack of Indexed Event Parameters**
 
 **Location:** Event declarations
 
@@ -178,23 +93,19 @@ event OrderCreated(
 | Severity | Count | Description |
 |----------|-------|-------------|
 | High | 1 | Centralization risk |
-| Medium | 4 | Missing expiration, no pause mechanism, emergency withdraw risks, no fees |
-| Low | 4 | Gas inefficiencies, style issues, missing indexed params |
+| Medium | 2 | Missing expiration, emergency withdraw risks |
+| Low | 1 | Missing indexed params |
 
 ---
 
 ## Recommended Actions (Priority Order)
 
 1. **High Priority**
-   - Implement `Pausable` pattern
    - Consider multi-sig or timelock for owner functions
 
 2. **Medium Priority**
    - Add order expiration mechanism
-   - Implement token contract validation
    - Add safeguards to emergency withdrawal
 
 3. **Low Priority**
-   - Reorganize event declarations
    - Add indexed parameters where beneficial
-   - Consider removing redundant `orderId` from struct

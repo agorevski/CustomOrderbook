@@ -135,6 +135,34 @@ describe("OrderBook", function () {
       ).to.be.revertedWith("Invalid requested token address");
     });
 
+    it("Should revert when offered token is not a contract", async function () {
+      const { orderBook, tokenB, maker } = await loadFixture(deployOrderBookFixture);
+      const eoaAddress = ethers.Wallet.createRandom().address;
+      
+      await expect(
+        orderBook.connect(maker).createOrder(
+          eoaAddress,
+          ethers.parseUnits("100", 6),
+          tokenB.target,
+          ethers.parseUnits("200", 6)
+        )
+      ).to.be.revertedWith("Offered token is not a contract");
+    });
+
+    it("Should revert when requested token is not a contract", async function () {
+      const { orderBook, tokenA, maker } = await loadFixture(deployOrderBookFixture);
+      const eoaAddress = ethers.Wallet.createRandom().address;
+      
+      await expect(
+        orderBook.connect(maker).createOrder(
+          tokenA.target,
+          ethers.parseUnits("100", 6),
+          eoaAddress,
+          ethers.parseUnits("200", 6)
+        )
+      ).to.be.revertedWith("Requested token is not a contract");
+    });
+
     it("Should revert when offered and requested tokens are the same", async function () {
       const { orderBook, tokenA, maker } = await loadFixture(deployOrderBookFixture);
       
@@ -843,6 +871,113 @@ describe("OrderBook", function () {
         ethers.parseUnits("100", 6),
         owner.address
       );
+    });
+  });
+
+  describe("Pause Functionality", function () {
+    it("Should allow owner to pause the contract", async function () {
+      const { orderBook, owner } = await loadFixture(deployOrderBookFixture);
+
+      await expect(orderBook.connect(owner).pause())
+        .to.emit(orderBook, "Paused")
+        .withArgs(owner.address);
+    });
+
+    it("Should allow owner to unpause the contract", async function () {
+      const { orderBook, owner } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).pause();
+
+      await expect(orderBook.connect(owner).unpause())
+        .to.emit(orderBook, "Unpaused")
+        .withArgs(owner.address);
+    });
+
+    it("Should revert when non-owner tries to pause", async function () {
+      const { orderBook, other } = await loadFixture(deployOrderBookFixture);
+
+      await expect(orderBook.connect(other).pause())
+        .to.be.revertedWithCustomError(orderBook, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should revert when non-owner tries to unpause", async function () {
+      const { orderBook, owner, other } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).pause();
+
+      await expect(orderBook.connect(other).unpause())
+        .to.be.revertedWithCustomError(orderBook, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should prevent createOrder when paused", async function () {
+      const { orderBook, tokenA, tokenB, owner, maker } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).pause();
+
+      await expect(
+        orderBook.connect(maker).createOrder(
+          tokenA.target,
+          ethers.parseUnits("100", 6),
+          tokenB.target,
+          ethers.parseUnits("200", 6)
+        )
+      ).to.be.revertedWithCustomError(orderBook, "EnforcedPause");
+    });
+
+    it("Should prevent fillOrder when paused", async function () {
+      const { orderBook, tokenA, tokenB, owner, maker, taker } = await loadFixture(deployOrderBookFixture);
+
+      // Create order before pausing
+      await orderBook.connect(maker).createOrder(
+        tokenA.target,
+        ethers.parseUnits("100", 6),
+        tokenB.target,
+        ethers.parseUnits("200", 6)
+      );
+
+      await orderBook.connect(owner).pause();
+
+      await expect(orderBook.connect(taker).fillOrder(1))
+        .to.be.revertedWithCustomError(orderBook, "EnforcedPause");
+    });
+
+    it("Should allow cancelOrder when paused", async function () {
+      const { orderBook, tokenA, tokenB, owner, maker } = await loadFixture(deployOrderBookFixture);
+
+      // Create order before pausing
+      await orderBook.connect(maker).createOrder(
+        tokenA.target,
+        ethers.parseUnits("100", 6),
+        tokenB.target,
+        ethers.parseUnits("200", 6)
+      );
+
+      await orderBook.connect(owner).pause();
+
+      // Cancel should still work when paused
+      await expect(orderBook.connect(maker).cancelOrder(1))
+        .to.emit(orderBook, "OrderCancelled")
+        .withArgs(1, maker.address);
+    });
+
+    it("Should allow createOrder and fillOrder after unpause", async function () {
+      const { orderBook, tokenA, tokenB, owner, maker, taker } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).pause();
+      await orderBook.connect(owner).unpause();
+
+      // Should work after unpause
+      await orderBook.connect(maker).createOrder(
+        tokenA.target,
+        ethers.parseUnits("100", 6),
+        tokenB.target,
+        ethers.parseUnits("200", 6)
+      );
+
+      await orderBook.connect(taker).fillOrder(1);
+
+      const order = await orderBook.getOrder(1);
+      expect(order.isFilled).to.be.true;
     });
   });
 

@@ -64,6 +64,13 @@ contract OrderBook is ReentrancyGuard, Ownable2Step, Pausable {
         address indexed maker
     );
 
+    event EmergencyWithdrawal(
+        address indexed token,
+        address indexed recipient,
+        uint256 amount,
+        address indexed admin
+    );
+
     /**
      * @dev Constructor initializes the order book
      */
@@ -351,12 +358,4 @@ contract OrderBook is ReentrancyGuard, Ownable2Step, Pausable {
     function unpause() external onlyOwner {
         _unpause();
     }
-
-    // Additional events
-    event EmergencyWithdrawal(
-        address indexed token,
-        address indexed recipient,
-        uint256 amount,
-        address indexed admin
-    );
 }
