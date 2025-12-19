@@ -1,0 +1,30 @@
+{
+  "name": "customorderbook",
+  "version": "1.0.0",
+  "description": "A security-hardened, decentralized exchange (DEX) implementation featuring an on-chain order book system for trustless ERC20 token swaps on EVM-compatible blockchains.",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "clean": "hardhat clean"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agorevski/CustomOrderbook.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/agorevski/CustomOrderbook/issues"
+  },
+  "homepage": "https://github.com/agorevski/CustomOrderbook#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "hardhat": "^2.28.0",
+    "solidity-coverage": "^0.8.17"
+  }
+}
