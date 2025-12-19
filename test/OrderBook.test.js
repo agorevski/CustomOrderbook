@@ -384,7 +384,6 @@ describe("OrderBook", function () {
 
       const order = await orderBook.getOrder(1);
 
-      expect(order.orderId).to.equal(1);
       expect(order.maker).to.equal(maker.address);
       expect(order.offeredToken).to.equal(tokenA.target);
       expect(order.offeredAmount).to.equal(offeredAmount);
@@ -464,9 +463,6 @@ describe("OrderBook", function () {
 
       // Orders 1, 3, 5 should be active (2 is filled, 4 is cancelled)
       expect(activeOrders.length).to.equal(3);
-      expect(activeOrders[0].orderId).to.equal(1);
-      expect(activeOrders[1].orderId).to.equal(3);
-      expect(activeOrders[2].orderId).to.equal(5);
     });
 
     it("Should handle pagination correctly", async function () {
@@ -492,6 +488,136 @@ describe("OrderBook", function () {
 
       const activeOrders = await orderBook.getActiveOrders(1, 10);
       expect(activeOrders.length).to.equal(0);
+    });
+
+    it("Should revert when count exceeds maximum allowed", async function () {
+      const { orderBook } = await loadFixture(deployOrderBookFixture);
+
+      await expect(orderBook.getActiveOrders(1, 101))
+        .to.be.revertedWith("Count exceeds maximum allowed");
+    });
+
+    it("Should allow exactly 100 count", async function () {
+      const { orderBook } = await loadFixture(deployOrderBookFixture);
+
+      // Should not revert with exactly 100
+      const activeOrders = await orderBook.getActiveOrders(1, 100);
+      expect(activeOrders.length).to.equal(0);
+    });
+  });
+
+  describe("getActiveOrderCount", function () {
+    it("Should return 0 for user with no orders", async function () {
+      const { orderBook, other } = await loadFixture(deployOrderBookFixture);
+
+      expect(await orderBook.getActiveOrderCount(other.address)).to.equal(0);
+    });
+
+    it("Should return correct count of active orders", async function () {
+      const { orderBook, tokenA, tokenB, maker, taker } = await loadFixture(deployOrderBookFixture);
+
+      const offeredAmount = ethers.parseUnits("10", 6);
+      const requestedAmount = ethers.parseUnits("20", 6);
+
+      // Create 5 orders
+      for (let i = 0; i < 5; i++) {
+        await orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        );
+      }
+
+      expect(await orderBook.getActiveOrderCount(maker.address)).to.equal(5);
+
+      // Fill one order
+      await orderBook.connect(taker).fillOrder(1);
+      expect(await orderBook.getActiveOrderCount(maker.address)).to.equal(4);
+
+      // Cancel one order
+      await orderBook.connect(maker).cancelOrder(2);
+      expect(await orderBook.getActiveOrderCount(maker.address)).to.equal(3);
+    });
+  });
+
+  describe("MAX_ACTIVE_ORDERS_PER_USER", function () {
+    it("Should have MAX_ACTIVE_ORDERS_PER_USER constant set to 100", async function () {
+      const { orderBook } = await loadFixture(deployOrderBookFixture);
+
+      expect(await orderBook.MAX_ACTIVE_ORDERS_PER_USER()).to.equal(100);
+    });
+
+    it("Should have MAX_ACTIVE_ORDERS_QUERY constant set to 100", async function () {
+      const { orderBook } = await loadFixture(deployOrderBookFixture);
+
+      expect(await orderBook.MAX_ACTIVE_ORDERS_QUERY()).to.equal(100);
+    });
+
+    it("Should revert when user exceeds max active orders", async function () {
+      const { orderBook, tokenA, tokenB, maker } = await loadFixture(deployOrderBookFixture);
+
+      const offeredAmount = ethers.parseUnits("1", 6);
+      const requestedAmount = ethers.parseUnits("2", 6);
+
+      // Create 100 orders (the maximum allowed)
+      for (let i = 0; i < 100; i++) {
+        await orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        );
+      }
+
+      // 101st order should fail
+      await expect(
+        orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        )
+      ).to.be.revertedWith("Max active orders exceeded");
+    });
+
+    it("Should allow creating new order after cancelling one when at max", async function () {
+      const { orderBook, tokenA, tokenB, maker } = await loadFixture(deployOrderBookFixture);
+
+      const offeredAmount = ethers.parseUnits("1", 6);
+      const requestedAmount = ethers.parseUnits("2", 6);
+
+      // Create 100 orders
+      for (let i = 0; i < 100; i++) {
+        await orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        );
+      }
+
+      // Cancel one order
+      await orderBook.connect(maker).cancelOrder(1);
+
+      // Now we should be able to create another order
+      await expect(
+        orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        )
+      ).to.not.be.reverted;
+    });
+
+    it("Should allow creating new order after one is filled when at max", async function () {
+      const { orderBook, tokenA, tokenB, maker, taker } = await loadFixture(deployOrderBookFixture);
+
+      const offeredAmount = ethers.parseUnits("1", 6);
+      const requestedAmount = ethers.parseUnits("2", 6);
+
+      // Create 100 orders
+      for (let i = 0; i < 100; i++) {
+        await orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        );
+      }
+
+      // Fill one order
+      await orderBook.connect(taker).fillOrder(1);
+
+      // Now we should be able to create another order
+      await expect(
+        orderBook.connect(maker).createOrder(
+          tokenA.target, offeredAmount, tokenB.target, requestedAmount
+        )
+      ).to.not.be.reverted;
     });
   });
 
@@ -545,7 +671,7 @@ describe("OrderBook", function () {
 
       await expect(
         orderBook.connect(taker).emergencyWithdraw(tokenA.target, offeredAmount, taker.address)
-      ).to.be.revertedWith("Only owner can call this function");
+      ).to.be.revertedWithCustomError(orderBook, "OwnableUnauthorizedAccount");
     });
 
     it("Should revert with zero token address", async function () {
@@ -581,32 +707,47 @@ describe("OrderBook", function () {
     });
   });
 
-  describe("transferOwnership", function () {
-    it("Should transfer ownership to new address", async function () {
+  describe("transferOwnership (Ownable2Step)", function () {
+    it("Should initiate ownership transfer", async function () {
       const { orderBook, owner, other } = await loadFixture(deployOrderBookFixture);
 
-      await expect(orderBook.connect(owner).transferOwnership(other.address))
+      await orderBook.connect(owner).transferOwnership(other.address);
+
+      // Owner is still the original until accepted
+      expect(await orderBook.owner()).to.equal(owner.address);
+      // Pending owner should be set
+      expect(await orderBook.pendingOwner()).to.equal(other.address);
+    });
+
+    it("Should complete ownership transfer when new owner accepts", async function () {
+      const { orderBook, owner, other } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).transferOwnership(other.address);
+      
+      await expect(orderBook.connect(other).acceptOwnership())
         .to.emit(orderBook, "OwnershipTransferred")
         .withArgs(owner.address, other.address);
 
       expect(await orderBook.owner()).to.equal(other.address);
     });
 
+    it("Should revert when non-pending owner tries to accept", async function () {
+      const { orderBook, owner, maker, other } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).transferOwnership(other.address);
+
+      await expect(orderBook.connect(maker).acceptOwnership())
+        .to.be.revertedWithCustomError(orderBook, "OwnableUnauthorizedAccount");
+    });
+
     it("Should revert when called by non-owner", async function () {
       const { orderBook, other } = await loadFixture(deployOrderBookFixture);
 
       await expect(orderBook.connect(other).transferOwnership(other.address))
-        .to.be.revertedWith("Only owner can call this function");
+        .to.be.revertedWithCustomError(orderBook, "OwnableUnauthorizedAccount");
     });
 
-    it("Should revert with zero address", async function () {
-      const { orderBook, owner } = await loadFixture(deployOrderBookFixture);
-
-      await expect(orderBook.connect(owner).transferOwnership(ethers.ZeroAddress))
-        .to.be.revertedWith("Invalid new owner address");
-    });
-
-    it("Should allow new owner to use owner functions", async function () {
+    it("Should allow new owner to use owner functions after accepting", async function () {
       const { orderBook, tokenA, tokenB, owner, maker, other } = await loadFixture(deployOrderBookFixture);
 
       // Create an order to have tokens in contract
@@ -618,13 +759,30 @@ describe("OrderBook", function () {
         ethers.parseUnits("200", 6)
       );
 
-      // Transfer ownership
+      // Transfer ownership (two-step)
       await orderBook.connect(owner).transferOwnership(other.address);
+      await orderBook.connect(other).acceptOwnership();
+
+      // New owner can use owner functions
+      await expect(
+        orderBook.connect(other).emergencyWithdraw(tokenA.target, offeredAmount, other.address)
+      ).to.emit(orderBook, "EmergencyWithdrawal");
 
       // Old owner can no longer use owner functions
       await expect(
-        orderBook.connect(owner).emergencyWithdraw(tokenA.target, offeredAmount, owner.address)
-      ).to.be.revertedWith("Only owner can call this function");
+        orderBook.connect(owner).transferOwnership(owner.address)
+      ).to.be.revertedWithCustomError(orderBook, "OwnableUnauthorizedAccount");
+    });
+
+    it("Should allow owner to cancel pending transfer by transferring to zero", async function () {
+      const { orderBook, owner, other } = await loadFixture(deployOrderBookFixture);
+
+      await orderBook.connect(owner).transferOwnership(other.address);
+      expect(await orderBook.pendingOwner()).to.equal(other.address);
+
+      // Cancel by setting pending owner to zero address
+      await orderBook.connect(owner).transferOwnership(ethers.ZeroAddress);
+      expect(await orderBook.pendingOwner()).to.equal(ethers.ZeroAddress);
     });
   });
 

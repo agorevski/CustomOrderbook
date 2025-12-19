@@ -4,6 +4,8 @@ pragma solidity ^0.8.20;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 /**
  * @title OrderBook
@@ -16,14 +18,13 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * - Always ensure tokens have been approved before calling fillOrder()
  * - Emergency withdrawal function exists for admin to recover stuck funds
  * 
- * @notice Version 1.1 - Security Hardened
+ * @notice Version 1.2 - Security Hardened with Ownable2Step
  */
-contract OrderBook is ReentrancyGuard {
+contract OrderBook is ReentrancyGuard, Ownable2Step, Pausable {
     using SafeERC20 for IERC20;
 
     // Order struct
     struct Order {
-        uint256 orderId;
         address maker;
         address offeredToken;
         uint256 offeredAmount;
@@ -37,7 +38,10 @@ contract OrderBook is ReentrancyGuard {
     uint256 private nextOrderId;
     mapping(uint256 => Order) public orders;
     mapping(address => uint256[]) public userOrders;
-    address public owner;
+    
+    // Constants
+    uint256 public constant MAX_ACTIVE_ORDERS_PER_USER = 100;
+    uint256 public constant MAX_ACTIVE_ORDERS_QUERY = 100;
 
     // Events
     event OrderCreated(
@@ -63,17 +67,8 @@ contract OrderBook is ReentrancyGuard {
     /**
      * @dev Constructor initializes the order book
      */
-    constructor() {
+    constructor() Ownable(msg.sender) {
         nextOrderId = 1;
-        owner = msg.sender;
-    }
-
-    /**
-     * @dev Modifier to restrict functions to owner only
-     */
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can call this function");
-        _;
     }
 
     /**
@@ -94,14 +89,23 @@ contract OrderBook is ReentrancyGuard {
         uint256 requestedAmount
     )
         external 
-        nonReentrant 
+        nonReentrant
+        whenNotPaused
         returns (uint256)
     {
         require(offeredToken != address(0), "Invalid offered token address");
         require(requestedToken != address(0), "Invalid requested token address");
+        require(offeredToken.code.length > 0, "Offered token is not a contract");
+        require(requestedToken.code.length > 0, "Requested token is not a contract");
         require(offeredToken != requestedToken, "Tokens must be different");
         require(offeredAmount > 0, "Offered amount must be greater than 0");
         require(requestedAmount > 0, "Requested amount must be greater than 0");
+        
+        // Check user hasn't exceeded max active orders
+        require(
+            _getActiveOrderCount(msg.sender) < MAX_ACTIVE_ORDERS_PER_USER,
+            "Max active orders exceeded"
+        );
 
         // Transfer offered token from maker to contract
         IERC20(offeredToken).safeTransferFrom(msg.sender, address(this), offeredAmount);
@@ -109,7 +113,6 @@ contract OrderBook is ReentrancyGuard {
         uint256 orderId = nextOrderId++;
         
         orders[orderId] = Order({
-            orderId: orderId,
             maker: msg.sender,
             offeredToken: offeredToken,
             offeredAmount: offeredAmount,
@@ -140,11 +143,11 @@ contract OrderBook is ReentrancyGuard {
      * @notice Ensure you have sufficient balance and have approved this contract
      * to spend the requested token amount before calling this function.
      */
-    function fillOrder(uint256 orderId) external nonReentrant {
+    function fillOrder(uint256 orderId) external nonReentrant whenNotPaused {
         Order storage order = orders[orderId];
         
         // CHECK: Validate order state
-        require(order.orderId != 0, "Order does not exist");
+        require(order.maker != address(0), "Order does not exist");
         require(!order.isFilled, "Order already filled");
         require(!order.isCancelled, "Order cancelled");
         require(order.maker != msg.sender, "Cannot fill your own order");
@@ -186,7 +189,7 @@ contract OrderBook is ReentrancyGuard {
     function cancelOrder(uint256 orderId) external nonReentrant {
         Order storage order = orders[orderId];
         
-        require(order.orderId != 0, "Order does not exist");
+        require(order.maker != address(0), "Order does not exist");
         require(order.maker == msg.sender, "Only maker can cancel");
         require(!order.isFilled, "Order already filled");
         require(!order.isCancelled, "Order already cancelled");
@@ -209,7 +212,7 @@ contract OrderBook is ReentrancyGuard {
      * @return Order struct
      */
     function getOrder(uint256 orderId) external view returns (Order memory) {
-        require(orders[orderId].orderId != 0, "Order does not exist");
+        require(orders[orderId].maker != address(0), "Order does not exist");
         return orders[orderId];
     }
 
@@ -225,17 +228,19 @@ contract OrderBook is ReentrancyGuard {
     /**
      * @dev Get active (unfilled and uncancelled) orders
      * @param startId Starting order ID
-     * @param count Number of orders to return
+     * @param count Number of orders to return (max 100)
      * @return Array of active orders
      * 
-     * @notice This function is optimized for gas efficiency but may still be expensive
-     * for large ranges. Recommend keeping count <= 100 for best performance.
+     * @notice This function enforces a maximum query size of 100 orders to prevent
+     * out-of-gas errors.
      */
     function getActiveOrders(uint256 startId, uint256 count) 
         external 
         view 
         returns (Order[] memory) 
     {
+        require(count <= MAX_ACTIVE_ORDERS_QUERY, "Count exceeds maximum allowed");
+        
         uint256 endId = startId + count;
         if (endId > nextOrderId) {
             endId = nextOrderId;
@@ -246,7 +251,7 @@ contract OrderBook is ReentrancyGuard {
         uint256 activeCount = 0;
         
         for (uint256 i = startId; i < endId; i++) {
-            if (orders[i].orderId != 0 && !orders[i].isFilled && !orders[i].isCancelled) {
+            if (orders[i].maker != address(0) && !orders[i].isFilled && !orders[i].isCancelled) {
                 tempOrders[activeCount] = orders[i];
                 activeCount++;
             }
@@ -259,6 +264,34 @@ contract OrderBook is ReentrancyGuard {
         }
 
         return activeOrders;
+    }
+    
+    /**
+     * @dev Get the count of active (unfilled and uncancelled) orders for a user
+     * @param user The address of the user
+     * @return count The number of active orders
+     */
+    function getActiveOrderCount(address user) external view returns (uint256) {
+        return _getActiveOrderCount(user);
+    }
+    
+    /**
+     * @dev Internal function to count active orders for a user
+     * @param user The address of the user
+     * @return count The number of active orders
+     */
+    function _getActiveOrderCount(address user) internal view returns (uint256) {
+        uint256[] memory orderIds = userOrders[user];
+        uint256 count = 0;
+        
+        for (uint256 i = 0; i < orderIds.length; i++) {
+            Order storage order = orders[orderIds[i]];
+            if (!order.isFilled && !order.isCancelled) {
+                count++;
+            }
+        }
+        
+        return count;
     }
 
     /**
@@ -306,14 +339,17 @@ contract OrderBook is ReentrancyGuard {
     }
 
     /**
-     * @dev Transfer ownership to a new address
-     * @param newOwner Address of the new owner
+     * @dev Pause the contract, preventing createOrder and fillOrder
      */
-    function transferOwnership(address newOwner) external onlyOwner {
-        require(newOwner != address(0), "Invalid new owner address");
-        address oldOwner = owner;
-        owner = newOwner;
-        emit OwnershipTransferred(oldOwner, newOwner);
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @dev Unpause the contract
+     */
+    function unpause() external onlyOwner {
+        _unpause();
     }
 
     // Additional events
@@ -322,10 +358,5 @@ contract OrderBook is ReentrancyGuard {
         address indexed recipient,
         uint256 amount,
         address indexed admin
-    );
-
-    event OwnershipTransferred(
-        address indexed previousOwner,
-        address indexed newOwner
     );
 }

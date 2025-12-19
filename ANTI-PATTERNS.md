@@ -10,85 +10,19 @@ This document identifies development anti-patterns found in the `OrderBook.sol` 
 
 ### 1. **Centralization Risk - Single Owner Without Multi-Sig**
 
-**Location:** Lines 40, 66-69, 74-77, 287-306, 312-317
+**Location:** Constructor, emergencyWithdraw function
 
-**Issue:** The contract uses a single `owner` address with full control over critical functions like `emergencyWithdraw` and `transferOwnership`. This creates a single point of failure and centralization risk.
-
-```solidity
-address public owner;
-
-constructor() {
-    owner = msg.sender;
-}
-```
+**Issue:** The contract uses a single `owner` address with full control over critical functions like `emergencyWithdraw`. This creates a single point of failure and centralization risk.
 
 **Recommendation:**
-- Implement OpenZeppelin's `Ownable2Step` for safer ownership transfers
 - Consider using a multi-signature wallet for the owner role
 - Add a timelock for critical operations
 
-```solidity
-import "@openzeppelin/contracts/access/Ownable2Step.sol";
-
-contract OrderBook is ReentrancyGuard, Ownable2Step {
-    // ...
-}
-```
-
 ---
 
-### 2. **Missing Event for State Changes in Ownership Transfer**
+### 2. **Missing Input Validation for Token Contract Existence**
 
-**Location:** Lines 312-317
-
-**Issue:** While `OwnershipTransferred` event is emitted, the custom implementation duplicates OpenZeppelin's `Ownable` functionality without the security benefits.
-
-**Recommendation:** Use `Ownable2Step` which requires the new owner to accept ownership, preventing accidental transfers to wrong addresses.
-
----
-
-### 3. **Unbounded Loop in `getActiveOrders`**
-
-**Location:** Lines 234-262
-
-**Issue:** The `getActiveOrders` function iterates through a range of orders which can lead to out-of-gas errors for large ranges. While there's a note recommending `count <= 100`, there's no enforcement.
-
-```solidity
-for (uint256 i = startId; i < endId; i++) {
-    if (orders[i].orderId != 0 && !orders[i].isFilled && !orders[i].isCancelled) {
-        // ...
-    }
-}
-```
-
-**Recommendation:**
-- Add a maximum limit with `require(count <= 100, "Count too large")`
-- Consider pagination with cursor-based navigation
-- Use off-chain indexing for order queries (e.g., The Graph)
-
----
-
-### 4. **No Maximum Order Count Per User**
-
-**Location:** Lines 39, 122
-
-**Issue:** Users can create unlimited orders, leading to unbounded array growth in `userOrders` mapping.
-
-```solidity
-mapping(address => uint256[]) public userOrders;
-userOrders[msg.sender].push(orderId);
-```
-
-**Recommendation:**
-- Implement a maximum order limit per user
-- Add function to clean up filled/cancelled orders from the array
-- Consider using a linked list or enumerable set pattern
-
----
-
-### 5. **Missing Input Validation for Token Contract Existence**
-
-**Location:** Lines 100-107
+**Location:** createOrder function
 
 **Issue:** The contract doesn't verify that token addresses are actually valid ERC20 contracts. This could lead to orders being created with invalid token addresses.
 
@@ -103,9 +37,9 @@ require(requestedToken.code.length > 0, "Requested token is not a contract");
 
 ---
 
-### 6. **No Order Expiration Mechanism**
+### 3. **No Order Expiration Mechanism**
 
-**Location:** Lines 25-34
+**Location:** Order struct
 
 **Issue:** Orders have no expiration date, meaning they can remain open indefinitely. This can lead to stale orders and locked funds.
 
@@ -122,9 +56,9 @@ struct Order {
 
 ---
 
-### 7. **Redundant `orderId` Storage in Struct**
+### 4. **Redundant `orderId` Storage in Struct**
 
-**Location:** Lines 26, 111
+**Location:** Order struct, createOrder function
 
 **Issue:** The `orderId` is stored both as the mapping key and inside the Order struct, wasting storage gas.
 
@@ -145,7 +79,7 @@ orders[orderId] = Order({
 
 ---
 
-### 8. **No Pause Mechanism**
+### 5. **No Pause Mechanism**
 
 **Location:** Entire contract
 
@@ -166,9 +100,9 @@ contract OrderBook is ReentrancyGuard, Pausable {
 
 ---
 
-### 9. **Emergency Withdraw Can Break Active Orders**
+### 6. **Emergency Withdraw Can Break Active Orders**
 
-**Location:** Lines 287-306
+**Location:** emergencyWithdraw function
 
 **Issue:** The `emergencyWithdraw` function can withdraw tokens that are locked in active orders, breaking those orders. While documented, there's no safeguard.
 
@@ -179,7 +113,7 @@ contract OrderBook is ReentrancyGuard, Pausable {
 
 ---
 
-### 10. **No Fee Mechanism**
+### 7. **No Fee Mechanism**
 
 **Location:** Entire contract
 
@@ -191,9 +125,9 @@ contract OrderBook is ReentrancyGuard, Pausable {
 
 ---
 
-### 11. **Events Declared After Functions**
+### 8. **Events Declared After Functions**
 
-**Location:** Lines 319-330
+**Location:** End of contract
 
 **Issue:** Events are declared at the end of the contract, which reduces readability and goes against common Solidity style conventions.
 
@@ -203,9 +137,9 @@ contract OrderBook is ReentrancyGuard, Pausable {
 
 ---
 
-### 12. **Lack of Indexed Event Parameters**
+### 9. **Lack of Indexed Event Parameters**
 
-**Location:** Lines 43-61, 319-330
+**Location:** Event declarations
 
 **Issue:** Some event parameters that would benefit from indexing are not indexed, making off-chain filtering less efficient.
 
@@ -233,6 +167,9 @@ event OrderCreated(
 4. **Input Validation** - Comprehensive require statements for parameters
 5. **Clear Documentation** - Well-documented functions with NatSpec comments
 6. **Event Emissions** - Emits events for all state changes
+7. **Ownable2Step** - Uses two-step ownership transfer for safety
+8. **Bounded Queries** - `getActiveOrders` enforces max count of 100
+9. **Order Limits** - Users limited to 100 active orders
 
 ---
 
@@ -240,9 +177,9 @@ event OrderCreated(
 
 | Severity | Count | Description |
 |----------|-------|-------------|
-| High | 2 | Centralization risk, unbounded loops |
-| Medium | 5 | Missing expiration, no pause mechanism, emergency withdraw risks, etc. |
-| Low | 5 | Gas inefficiencies, style issues, missing indexed params |
+| High | 1 | Centralization risk |
+| Medium | 4 | Missing expiration, no pause mechanism, emergency withdraw risks, no fees |
+| Low | 4 | Gas inefficiencies, style issues, missing indexed params |
 
 ---
 
@@ -250,8 +187,7 @@ event OrderCreated(
 
 1. **High Priority**
    - Implement `Pausable` pattern
-   - Add maximum limit enforcement in `getActiveOrders`
-   - Migrate to `Ownable2Step`
+   - Consider multi-sig or timelock for owner functions
 
 2. **Medium Priority**
    - Add order expiration mechanism
