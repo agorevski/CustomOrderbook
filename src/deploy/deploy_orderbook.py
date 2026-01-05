@@ -37,7 +37,17 @@ class OrderBookDeployer:
         self.account = self._setup_account()
 
     def _load_config(self, network: str) -> Dict[str, Any]:
-        """Load network configuration"""
+        """Load network configuration from deployment_config.json.
+
+        Args:
+            network: The network name to load configuration for.
+
+        Returns:
+            Dictionary containing network configuration (rpc_url, chain_id, etc.).
+
+        Raises:
+            FileNotFoundError: If deployment_config.json is not found.
+        """
         config_path = Path(__file__).parent / "deployment_config.json"
         if config_path.exists():
             with open(config_path, "r") as f:
@@ -47,7 +57,14 @@ class OrderBookDeployer:
             raise FileNotFoundError("deployment_config.json not found")
 
     def _setup_web3(self) -> Web3:
-        """Setup Web3 connection"""
+        """Setup Web3 connection to the configured network.
+
+        Returns:
+            Web3 instance connected to the network.
+
+        Raises:
+            ConnectionError: If connection to the network fails.
+        """
         rpc_url = self.config["rpc_url"]
 
         print(f"Connecting to {self.network} network...")
@@ -64,7 +81,14 @@ class OrderBookDeployer:
         return w3
 
     def _setup_account(self) -> Account:
-        """Setup deployer account from private key"""
+        """Setup deployer account from private key in environment variables.
+
+        Returns:
+            Account instance for the deployer.
+
+        Raises:
+            ValueError: If PRIVATE_KEY is not found in environment variables.
+        """
         private_key = os.getenv("PRIVATE_KEY")
 
         if not private_key:
@@ -90,7 +114,17 @@ class OrderBookDeployer:
         return account
 
     def compile_contract(self, node_modules_dir: str) -> Dict[str, Any]:
-        """Compile the OrderBook contract"""
+        """Compile the OrderBook smart contract using solcx.
+
+        Args:
+            node_modules_dir: Path to node_modules directory containing OpenZeppelin contracts.
+
+        Returns:
+            Dictionary containing 'abi' and 'bytecode' of the compiled contract.
+
+        Raises:
+            FileNotFoundError: If OrderBook.sol or node_modules directory is not found.
+        """
         print("\nCompiling OrderBook.sol...")
 
         # Install and set solc version
@@ -156,11 +190,16 @@ class OrderBookDeployer:
         }
 
     def deploy_contract(self, contract_data: Dict[str, Any]) -> tuple:
-        """
-        Deploy the contract
+        """Deploy the compiled contract to the blockchain.
+
+        Args:
+            contract_data: Dictionary containing 'abi' and 'bytecode' from compilation.
 
         Returns:
-            tuple: (contract_address, transaction_hash)
+            Tuple of (contract_address, transaction_hash) for the deployed contract.
+
+        Raises:
+            Exception: If contract deployment transaction fails.
         """
         print("\nDeploying OrderBook contract...")
 
@@ -216,7 +255,12 @@ class OrderBookDeployer:
             raise Exception("Contract deployment failed")
 
     def _get_gas_price(self) -> int:
-        """Get gas price for transaction"""
+        """Get gas price for the deployment transaction.
+
+        Returns:
+            Gas price in wei. Uses network's current gas price if config is 'auto',
+            otherwise uses the manually specified value from config.
+        """
         if self.config["gas_price"] == "auto":
             gas_price = self.w3.eth.gas_price
             print(f"✓ Gas price (auto): {self.w3.from_wei(gas_price, 'gwei')} Gwei")
@@ -228,7 +272,13 @@ class OrderBookDeployer:
             return gas_price
 
     def save_deployment_info(self, contract_address: str, tx_hash: str, abi: list):
-        """Save deployment information to files"""
+        """Save deployment information to JSON files in the deployments directory.
+
+        Args:
+            contract_address: The deployed contract's address.
+            tx_hash: The deployment transaction hash.
+            abi: The contract's ABI as a list.
+        """
         print("\nSaving deployment information...")
 
         # Create deployments directory
@@ -272,7 +322,15 @@ class OrderBookDeployer:
         print(f"✓ Complete deployment data saved to {combined_path}")
 
     def verify_deployment(self, contract_address: str, abi: list):
-        """Verify the deployed contract"""
+        """Verify the deployed contract by calling its functions.
+
+        Args:
+            contract_address: The deployed contract's address.
+            abi: The contract's ABI as a list.
+
+        Returns:
+            Tuple of (success, owner_address, next_order_id, verification_status).
+        """
         print("\nVerifying deployment...")
 
         contract = self.w3.eth.contract(address=contract_address, abi=abi)
@@ -300,7 +358,11 @@ class OrderBookDeployer:
             return False, None, None, "failed"
 
     def run(self, node_modules_dir: str):
-        """Run the complete deployment process"""
+        """Run the complete deployment process: compile, deploy, save, and verify.
+
+        Args:
+            node_modules_dir: Path to node_modules directory containing OpenZeppelin contracts.
+        """
         print("=" * 70)
         print("OrderBook Smart Contract Deployment")
         print("=" * 70)
@@ -338,7 +400,14 @@ class OrderBookDeployer:
             sys.exit(1)
 
     def _get_explorer_url(self, contract_address: str) -> str:
-        """Get block explorer URL for the contract"""
+        """Get block explorer URL for the deployed contract.
+
+        Args:
+            contract_address: The deployed contract's address.
+
+        Returns:
+            URL string to view the contract on the network's block explorer.
+        """
         explorers = {
             "ethereum": f"https://etherscan.io/address/{contract_address}",
             "sepolia": f"https://sepolia.etherscan.io/address/{contract_address}",
@@ -350,7 +419,11 @@ class OrderBookDeployer:
 
 
 def parse_arguments() -> argparse.Namespace:
-    """Parse command line arguments"""
+    """Parse command line arguments for the deployment script.
+
+    Returns:
+        Namespace containing parsed arguments (network, node_modules_dir).
+    """
     parser = argparse.ArgumentParser(description="Deploy OrderBook smart contract")
     parser.add_argument(
         "--network",

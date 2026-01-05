@@ -28,29 +28,56 @@ class Colors:
 
 
 def print_success(message):
-    """Print success message in green"""
+    """Print success message in green.
+
+    Args:
+        message: The message to display with a green checkmark prefix.
+    """
     print(f"{Colors.GREEN}✓{Colors.RESET} {message}")
 
 
 def print_error(message):
-    """Print error message in red"""
+    """Print error message in red.
+
+    Args:
+        message: The message to display with a red X prefix.
+    """
     print(f"{Colors.RED}✗{Colors.RESET} {message}")
 
 
 def print_info(message):
-    """Print info message in cyan"""
+    """Print info message in cyan.
+
+    Args:
+        message: The message to display with a cyan info prefix.
+    """
     print(f"{Colors.CYAN}ℹ{Colors.RESET} {message}")
 
 
 def print_header(message):
-    """Print header message"""
+    """Print header message with bold formatting and separator lines.
+
+    Args:
+        message: The header text to display, centered within an 80-character width.
+    """
     print(f"\n{Colors.BOLD}{'='*80}")
     print(f"{message:^80}")
     print(f"{'='*80}{Colors.RESET}\n")
 
 
 def load_json_file(file_path, description):
-    """Load and parse a JSON file"""
+    """Load and parse a JSON file.
+
+    Args:
+        file_path: The path to the JSON file to load.
+        description: A human-readable description of the file for logging purposes.
+
+    Returns:
+        The parsed JSON data as a Python object (dict or list).
+
+    Raises:
+        SystemExit: If the file is not found or contains invalid JSON.
+    """
     try:
         with open(file_path, "r") as f:
             data = json.load(f)
@@ -65,7 +92,18 @@ def load_json_file(file_path, description):
 
 
 def get_token_decimals(w3, token_address):
-    """Query the decimals from an ERC-20 token contract"""
+    """Query the decimals from an ERC-20 token contract.
+
+    Args:
+        w3: A connected Web3 instance for making contract calls.
+        token_address: The address of the ERC-20 token contract.
+
+    Returns:
+        The number of decimals for the token (typically 18 for most tokens).
+
+    Raises:
+        SystemExit: If the contract call fails or the token doesn't implement decimals().
+    """
     # Standard ERC-20 decimals() function ABI
     decimals_abi = [
         {
@@ -89,7 +127,19 @@ def get_token_decimals(w3, token_address):
 
 
 def tenderly_rpc_call(rpc_url, method, params):
-    """Make a JSON-RPC call to Tenderly"""
+    """Make a JSON-RPC call to Tenderly.
+
+    Args:
+        rpc_url: The Tenderly RPC endpoint URL.
+        method: The JSON-RPC method name to call (e.g., 'tenderly_setBalance').
+        params: A list of parameters to pass to the RPC method.
+
+    Returns:
+        The result field from the JSON-RPC response.
+
+    Raises:
+        SystemExit: If the request fails or the RPC returns an error.
+    """
     payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": "1"}
 
     try:
@@ -110,7 +160,16 @@ def tenderly_rpc_call(rpc_url, method, params):
 
 
 def fund_native_balance(rpc_url, addresses, amount_wei):
-    """Fund native balance (ETH) to addresses using tenderly_setBalance"""
+    """Fund native balance (ETH) to addresses using tenderly_setBalance.
+
+    Args:
+        rpc_url: The Tenderly RPC endpoint URL.
+        addresses: A list of wallet addresses to fund.
+        amount_wei: The amount of ETH to fund in Wei.
+
+    Returns:
+        The result from the Tenderly RPC call.
+    """
     print_info(
         f"Funding {len(addresses)} address(es) with {Web3.from_wei(amount_wei, 'ether')} ETH each..."
     )
@@ -124,7 +183,17 @@ def fund_native_balance(rpc_url, addresses, amount_wei):
 
 
 def fund_erc20_balance(rpc_url, token_address, addresses, amount):
-    """Fund ERC-20 token balance using tenderly_setErc20Balance"""
+    """Fund ERC-20 token balance using tenderly_setErc20Balance.
+
+    Args:
+        rpc_url: The Tenderly RPC endpoint URL.
+        token_address: The address of the ERC-20 token contract.
+        addresses: A list of wallet addresses to fund.
+        amount: The amount of tokens to fund (including decimals).
+
+    Returns:
+        The result from the Tenderly RPC call.
+    """
     print_info(
         f"Funding {len(addresses)} address(es) with {amount} tokens from {token_address}..."
     )
@@ -140,7 +209,15 @@ def fund_erc20_balance(rpc_url, token_address, addresses, amount):
 
 
 def main():
-    """Main execution function"""
+    """Main execution function for funding test wallets.
+
+    Loads configuration files, connects to Web3, and funds both native ETH
+    and ERC-20 token balances for the ask and fill test wallets on the
+    Tenderly virtual testnet.
+
+    Raises:
+        SystemExit: If configuration loading fails or Web3 connection fails.
+    """
     print_header("Fund Test Wallets Utility")
 
     # Determine base paths

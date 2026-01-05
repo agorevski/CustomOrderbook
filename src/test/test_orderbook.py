@@ -43,37 +43,64 @@ class Colors:
 
 
 def print_header(text):
-    """Print formatted header"""
+    """Print formatted header with decorative borders.
+
+    Args:
+        text: The header text to display centered within the border.
+    """
     print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*80}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{text.center(80)}{Colors.ENDC}")
     print(f"{Colors.HEADER}{Colors.BOLD}{'='*80}{Colors.ENDC}\n")
 
 
 def print_success(text):
-    """Print success message"""
+    """Print success message with green checkmark.
+
+    Args:
+        text: The success message to display.
+    """
     print(f"{Colors.OKGREEN}✓ {text}{Colors.ENDC}")
 
 
 def print_error(text):
-    """Print error message"""
+    """Print error message with red X marker.
+
+    Args:
+        text: The error message to display.
+    """
     print(f"{Colors.FAIL}✗ {text}{Colors.ENDC}")
 
 
 def print_info(text):
-    """Print info message"""
+    """Print informational message with cyan info marker.
+
+    Args:
+        text: The informational message to display.
+    """
     print(f"{Colors.OKCYAN}ℹ {text}{Colors.ENDC}")
 
 
 def print_warning(text):
-    """Print warning message"""
+    """Print warning message with yellow warning marker.
+
+    Args:
+        text: The warning message to display.
+    """
     print(f"{Colors.WARNING}⚠ {text}{Colors.ENDC}")
 
 
 def load_env_config():
     """Load configuration from .env file for --use-env mode.
 
+    Reads environment variables for token addresses, account credentials,
+    and optional trade amounts. Validates that all required variables are present.
+
     Returns:
-        dict: Configuration containing token addresses and account information
+        dict: Configuration containing token addresses, account information,
+            and optional trade amounts.
+
+    Raises:
+        SystemExit: If .env file is not found or required variables are missing.
     """
     env_path = Path(__file__).parent / ".env"
 
@@ -168,7 +195,17 @@ def load_env_config():
 
 
 def load_json_file(filepath):
-    """Load and parse JSON file"""
+    """Load and parse a JSON file from disk.
+
+    Args:
+        filepath: Path to the JSON file to load.
+
+    Returns:
+        dict: Parsed JSON content as a Python dictionary.
+
+    Raises:
+        SystemExit: If file is not found or contains invalid JSON.
+    """
     try:
         with open(filepath, "r") as f:
             return json.load(f)
@@ -182,9 +219,15 @@ def load_json_file(filepath):
 
 def load_deployed_contract_abi():
     """Load the OrderBook ABI from the deployments directory.
-    
+
+    Searches for the OrderBook_abi.json file in the deployments folder
+    relative to the project root.
+
     Returns:
-        list: The contract ABI
+        list: The contract ABI as a list of function/event definitions.
+
+    Raises:
+        SystemExit: If the ABI file is not found.
     """
     base_path = Path(__file__).parent.parent.parent
     abi_path = base_path / "deployments" / "OrderBook_abi.json"
@@ -202,17 +245,45 @@ def load_deployed_contract_abi():
 
 
 def format_token_amount(amount, decimals=6):
-    """Format token amount with decimals"""
+    """Format a raw token amount to human-readable decimal representation.
+
+    Args:
+        amount: The raw token amount in smallest units (e.g., wei).
+        decimals: Number of decimal places for the token. Defaults to 6.
+
+    Returns:
+        float: The formatted token amount with decimal places applied.
+    """
     return float(amount) / (10**decimals)
 
 
 def to_wei_custom(amount, decimals=6):
-    """Convert amount to smallest unit based on token decimals"""
+    """Convert a human-readable token amount to smallest unit representation.
+
+    Args:
+        amount: The token amount in human-readable format (e.g., 5.0 USDC).
+        decimals: Number of decimal places for the token. Defaults to 6.
+
+    Returns:
+        int: The amount in smallest units (e.g., 5000000 for 5.0 USDC).
+    """
     return int(amount * (10**decimals))
 
 
 def tenderly_rpc_call(rpc_url, method, params):
-    """Make a JSON-RPC call to Tenderly"""
+    """Make a JSON-RPC call to a Tenderly virtual testnet.
+
+    Args:
+        rpc_url: The Tenderly RPC endpoint URL.
+        method: The JSON-RPC method name (e.g., 'tenderly_setBalance').
+        params: List of parameters for the RPC method.
+
+    Returns:
+        The result field from the JSON-RPC response.
+
+    Raises:
+        SystemExit: If the RPC call fails or returns an error.
+    """
     payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": "1"}
 
     try:
@@ -233,7 +304,15 @@ def tenderly_rpc_call(rpc_url, method, params):
 
 
 def generate_test_accounts():
-    """Generate 3 fresh vanity accounts for testing"""
+    """Generate 3 fresh vanity accounts for testing.
+
+    Creates three new Ethereum accounts with vanity addresses for use
+    as deployment, ask, and fill accounts in the test suite.
+
+    Returns:
+        tuple: A tuple of (deployment_account, ask_account, fill_account),
+            each containing 'checksum_address' and 'private_key' keys.
+    """
     print_info("Generating 3 fresh test accounts...")
     accounts = generate_multiple_addresses(3)
 
@@ -259,7 +338,19 @@ def fund_accounts(
     token_a_address=None,
     token_b_address=None,
 ):
-    """Fund accounts with ETH and tokens via Tenderly RPC"""
+    """Fund test accounts with ETH and ERC20 tokens via Tenderly RPC.
+
+    Uses Tenderly's special RPC methods to set native ETH balances and
+    ERC20 token balances for the test accounts.
+
+    Args:
+        rpc_url: The Tenderly RPC endpoint URL.
+        deployment_account: Account dict for contract deployment.
+        ask_account: Account dict that will create orders (receives Token A).
+        fill_account: Account dict that will fill orders (receives Token B).
+        token_a_address: Address of Token A (defaults to USDC on Arbitrum).
+        token_b_address: Address of Token B (defaults to custom token).
+    """
     print_header("Funding Test Accounts")
 
     # Use provided token addresses or defaults
@@ -309,7 +400,17 @@ def fund_accounts(
 
 
 def compile_orderbook_contract():
-    """Compile the OrderBook.sol contract"""
+    """Compile the OrderBook.sol smart contract using solcx.
+
+    Installs the required Solidity compiler version, locates OpenZeppelin
+    imports from node_modules, and compiles the contract with optimization.
+
+    Returns:
+        dict: Contains 'abi' (contract ABI) and 'bytecode' (compiled bytecode).
+
+    Raises:
+        SystemExit: If contract file is not found or node_modules is missing.
+    """
     print_header("Compiling OrderBook Contract")
 
     # Install and set solc version
@@ -389,7 +490,22 @@ def compile_orderbook_contract():
 
 
 def deploy_orderbook_contract(w3, deployment_account, contract_data):
-    """Deploy the OrderBook contract using the deployment account"""
+    """Deploy the OrderBook contract to the blockchain.
+
+    Builds, signs, and sends the deployment transaction, then waits
+    for confirmation.
+
+    Args:
+        w3: Web3 instance connected to the target network.
+        deployment_account: Account dict with 'checksum_address' and 'private_key'.
+        contract_data: Dict containing 'abi' and 'bytecode' from compilation.
+
+    Returns:
+        str: The deployed contract address.
+
+    Raises:
+        SystemExit: If deployment transaction fails.
+    """
     print_header("Deploying OrderBook Contract")
 
     # Create contract instance
@@ -448,7 +564,16 @@ def deploy_orderbook_contract(w3, deployment_account, contract_data):
 
 
 def get_token_balance(w3, token_address, wallet_address):
-    """Get ERC20 token balance for a wallet"""
+    """Get ERC20 token balance for a wallet address.
+
+    Args:
+        w3: Web3 instance connected to the target network.
+        token_address: The ERC20 token contract address.
+        wallet_address: The wallet address to check balance for.
+
+    Returns:
+        int: The token balance in smallest units.
+    """
     # Minimal ERC20 ABI for balanceOf
     erc20_abi = [
         {
@@ -474,7 +599,19 @@ def get_token_balance(w3, token_address, wallet_address):
 def approve_token(
     w3, token_address, spender_address, amount, private_key, from_address
 ):
-    """Approve token spending"""
+    """Approve a spender to transfer ERC20 tokens on behalf of the owner.
+
+    Args:
+        w3: Web3 instance connected to the target network.
+        token_address: The ERC20 token contract address.
+        spender_address: The address being approved to spend tokens.
+        amount: The amount of tokens to approve (in smallest units).
+        private_key: Private key of the token owner for signing.
+        from_address: The token owner's address.
+
+    Returns:
+        dict: The transaction receipt from the approval.
+    """
     # Minimal ERC20 ABI for approve
     erc20_abi = [
         {
@@ -527,7 +664,21 @@ def create_order(
     private_key,
     from_address,
 ):
-    """Create an order on the OrderBook"""
+    """Create a new order on the OrderBook contract.
+
+    Args:
+        w3: Web3 instance connected to the target network.
+        contract: The OrderBook contract instance.
+        offered_token: Address of the token being offered.
+        offered_amount: Amount of offered token (in smallest units).
+        requested_token: Address of the token being requested.
+        requested_amount: Amount of requested token (in smallest units).
+        private_key: Private key of the order creator for signing.
+        from_address: The order creator's address.
+
+    Returns:
+        dict: The transaction receipt from order creation.
+    """
     nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(from_address))
 
     tx = contract.functions.createOrder(
@@ -555,7 +706,18 @@ def create_order(
 
 
 def fill_order(w3, contract, order_id, private_key, from_address):
-    """Fill an order on the OrderBook"""
+    """Fill an existing order on the OrderBook contract.
+
+    Args:
+        w3: Web3 instance connected to the target network.
+        contract: The OrderBook contract instance.
+        order_id: The unique identifier of the order to fill.
+        private_key: Private key of the order filler for signing.
+        from_address: The order filler's address.
+
+    Returns:
+        dict: The transaction receipt from order filling.
+    """
     nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(from_address))
 
     tx = contract.functions.fillOrder(order_id).build_transaction(
@@ -578,7 +740,16 @@ def fill_order(w3, contract, order_id, private_key, from_address):
 
 
 def extract_order_id_from_receipt(w3, receipt, contract):
-    """Extract order ID from OrderCreated event in transaction receipt"""
+    """Extract order ID from OrderCreated event in transaction receipt.
+
+    Args:
+        w3: Web3 instance connected to the target network.
+        receipt: The transaction receipt from order creation.
+        contract: The OrderBook contract instance.
+
+    Returns:
+        int: The order ID if found, None otherwise.
+    """
     # Get OrderCreated event
     order_created_event = contract.events.OrderCreated()
     logs = order_created_event.process_receipt(receipt)
@@ -599,18 +770,29 @@ def run_orderbook_tests(
     token_a_trade_amount=None,
     token_b_trade_amount=None,
 ):
-    """Run the OrderBook tests
+    """Run the comprehensive OrderBook contract test suite.
+
+    Executes a full order lifecycle test: verifies pre-conditions, creates an order,
+    fills the order, and validates post-conditions including token balances.
 
     Args:
-        w3: Web3 instance
-        contract_address: Deployed OrderBook contract address
-        contract_abi: Contract ABI
-        ask_account: Account that creates the order (offers Token A, requests Token B)
-        fill_account: Account that fills the order (offers Token B, receives Token A)
-        token_a_address: Token A address (default: USDC)
-        token_b_address: Token B address (default: custom Token B)
-        token_a_trade_amount: Optional fixed amount of Token A to trade (in token units, e.g., 5.0)
-        token_b_trade_amount: Optional fixed amount of Token B to trade (in token units, e.g., 50000.0)
+        w3: Web3 instance connected to the target network.
+        contract_address: Deployed OrderBook contract address.
+        contract_abi: The contract ABI for interaction.
+        ask_account: Account dict that creates the order (offers Token A, requests Token B).
+        fill_account: Account dict that fills the order (offers Token B, receives Token A).
+        token_a_address: Token A address. Defaults to USDC on Arbitrum if None.
+        token_b_address: Token B address. Defaults to custom token if None.
+        token_a_trade_amount: Optional fixed amount of Token A to trade (in token units).
+            If None, uses the full wallet balance.
+        token_b_trade_amount: Optional fixed amount of Token B to trade (in token units).
+            If None, uses the full wallet balance.
+
+    Returns:
+        tuple: (success, order_id) where success is True if all tests passed.
+
+    Raises:
+        SystemExit: If critical test steps fail (e.g., zero balances, failed transactions).
     """
     print_header("Running OrderBook Tests")
 
@@ -921,7 +1103,11 @@ def run_orderbook_tests(
 
 
 def parse_arguments():
-    """Parse command-line arguments"""
+    """Parse command-line arguments for the test script.
+
+    Returns:
+        argparse.Namespace: Parsed arguments with 'use_env' boolean attribute.
+    """
     parser = argparse.ArgumentParser(
         description="OrderBook Contract Integrated Test Script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -940,7 +1126,14 @@ Examples:
 
 
 def main():
-    """Main test execution"""
+    """Main entry point for the OrderBook test suite.
+
+    Orchestrates the complete test lifecycle including configuration loading,
+    network connection, account setup, contract deployment, and test execution.
+
+    Returns:
+        int: Exit code (0 for success, 1 for failure).
+    """
     # Parse command-line arguments
     args = parse_arguments()
     use_env = args.use_env
